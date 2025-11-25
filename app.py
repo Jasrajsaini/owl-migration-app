@@ -42,8 +42,6 @@ if page == "Home":
     using Motus detection data.  
     We investigate:
     -  **Migration timing** (arrival, stopover, departure)
-    -  **Age and sex groups**
-    -  **Body measurements** (fat, wing, weight, molt)
     -  **Detection behavior patterns across all tags**
 
     This analysis helps researchers better understand **population trends**,  
