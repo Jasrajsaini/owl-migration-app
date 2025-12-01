@@ -14,18 +14,20 @@ from sklearn.metrics.pairwise import cosine_similarity
 @st.cache_data
 def load_data():
     detections = pd.read_csv("detections_with_phase.csv")
-    migration_summary = pd.read_csv("migration_phase_summary.csv")
+    migration_summary = pd.read_csv("migration_summary.csv")  # basic summary
+    migration_phase_summary = pd.read_csv("migration_phase_summary.csv")  # DBSCAN summary
     xai_summary = pd.read_csv("phase_summary_XAI.csv")
 
     # Ensure Tag is always STRING
     detections["Tag"] = detections["Tag"].astype(str)
     migration_summary["Tag"] = migration_summary["Tag"].astype(str)
+    migration_phase_summary["Tag"] = migration_phase_summary["Tag"].astype(str)
     xai_summary["Tag"] = xai_summary["Tag"].astype(str)
 
-    return detections, migration_summary, xai_summary
+    return detections, migration_summary, migration_phase_summary, xai_summary
 
 
-detections, migration_summary, xai_summary = load_data()
+detections, migration_summary, migration_phase_summary, xai_summary = load_data()
 
 # ======================
 # SIDEBAR – NAVIGATION
@@ -35,8 +37,7 @@ st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to:", ["Home", "EDA", "Model", "Chatbot"])
 
 st.sidebar.title("Tag Selection")
-
-all_tags = sorted(detections["Tag"].unique())  # Tag IDs as strings
+all_tags = sorted(detections["Tag"].unique())
 selected_tag = st.sidebar.selectbox("Choose Tag ID:", all_tags)
 
 # ============================================================
@@ -73,7 +74,7 @@ if page == "Home":
     Use the sidebar to navigate between pages and select a tag.
     """)
 
-    st.info("👉 Start by selecting a page and a Tag ID from the sidebar.")
+    st.info(" Start by selecting a page and a Tag ID from the sidebar.")
 
 # ============================================================
 # EDA PAGE
@@ -81,15 +82,12 @@ if page == "Home":
 
 elif page == "EDA":
 
-    st.title("📊 Exploratory Data Analysis (EDA)")
+    st.title(" Exploratory Data Analysis (EDA)")
 
-    st.write("### 🦉 Migration Summary (All Tags)")
+    st.write("### 🦉 Basic Migration Summary (All Tags)")
     st.dataframe(migration_summary)
 
-    st.write(f"### 📅 Daily Detection Counts — Tag {selected_tag}")
-
-    detections["Tag"] = detections["Tag"].astype(str)
-    selected_tag = str(selected_tag)
+    st.write(f"###  Daily Detection Counts — Tag {selected_tag}")
 
     df_tag = detections[detections["Tag"] == selected_tag].copy()
 
@@ -111,15 +109,15 @@ elif page == "EDA":
         st.pyplot(fig)
 
 # ============================================================
-# MODEL PAGE
+# MODEL PAGE (DBSCAN PHASES)
 # ============================================================
 
 elif page == "Model":
 
     st.title(" Migration Model (DBSCAN Phases)")
 
-    st.write("### 🦉 Migration Phase Summary (All Tags)")
-    st.dataframe(migration_summary)
+    st.write("### 🦉 DBSCAN-Based Migration Summary (All Tags)")
+    st.dataframe(migration_phase_summary)
 
     st.write(f"###  DBSCAN Phase Plot — Tag {selected_tag}")
 
@@ -129,6 +127,8 @@ elif page == "Model":
     if df_tag.empty:
         st.error("No data available for this tag.")
     else:
+        df_tag = df_tag.sort_values("ts")
+
         fig, ax = plt.subplots(figsize=(10, 4))
 
         colors = {
@@ -162,7 +162,7 @@ elif page == "Model":
 
 elif page == "Chatbot":
 
-    st.title("Saw-whet Owl Migration Chatbot")
+    st.title("🦉 Saw-whet Owl Migration Chatbot")
 
     st.write(
         "Ask a question about migration timing, phases, clusters, or any owl tag. "
@@ -170,14 +170,15 @@ elif page == "Chatbot":
     )
 
     # ---- Build Knowledge Base ----
-    def build_kb(mig, xai):
+    def build_kb(mig_dbscan, xai):
         rows = []
 
-        # Migration summary facts
-        for _, r in mig.iterrows():
+        # Migration phase summary (DBSCAN)
+        for _, r in mig_dbscan.iterrows():
             text = (
-                f"Owl {r['Tag']} was detected from {r['Arrival']} to {r['Departure']} "
-                f"for {r['Total_Days']} days with {r['Num_Clusters']} clusters."
+                f"Owl {r['Tag']} had {r['Num_Clusters']} clusters, "
+                f"with arrival on {r['Arrival']} and departure on {r['Departure']} "
+                f"for a total of {r['Total_Days']} days."
             )
             rows.append(text)
 
@@ -190,7 +191,7 @@ elif page == "Chatbot":
 
         return rows
 
-    kb = build_kb(migration_summary, xai_summary)
+    kb = build_kb(migration_phase_summary, xai_summary)
 
     # ---- Build TF-IDF Search Engine ----
     vectorizer = TfidfVectorizer()
