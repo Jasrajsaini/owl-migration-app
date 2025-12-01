@@ -13,21 +13,20 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 @st.cache_data
 def load_data():
+    # These are the 3 CSVs you actually created in your analysis code
     detections = pd.read_csv("detections_with_phase.csv")
-    migration_summary = pd.read_csv("migration_summary.csv")  # basic summary
-    migration_phase_summary = pd.read_csv("migration_phase_summary.csv")  # DBSCAN summary
+    migration_phase_summary = pd.read_csv("migration_phase_summary.csv")
     xai_summary = pd.read_csv("phase_summary_XAI.csv")
 
     # Ensure Tag is always STRING
     detections["Tag"] = detections["Tag"].astype(str)
-    migration_summary["Tag"] = migration_summary["Tag"].astype(str)
     migration_phase_summary["Tag"] = migration_phase_summary["Tag"].astype(str)
     xai_summary["Tag"] = xai_summary["Tag"].astype(str)
 
-    return detections, migration_summary, migration_phase_summary, xai_summary
+    return detections, migration_phase_summary, xai_summary
 
 
-detections, migration_summary, migration_phase_summary, xai_summary = load_data()
+detections, migration_phase_summary, xai_summary = load_data()
 
 # ======================
 # SIDEBAR – NAVIGATION
@@ -74,7 +73,7 @@ if page == "Home":
     Use the sidebar to navigate between pages and select a tag.
     """)
 
-    st.info(" Start by selecting a page and a Tag ID from the sidebar.")
+    st.info("👉 Start by selecting a page and a Tag ID from the sidebar.")
 
 # ============================================================
 # EDA PAGE
@@ -84,8 +83,9 @@ elif page == "EDA":
 
     st.title(" Exploratory Data Analysis (EDA)")
 
-    st.write("### 🦉 Basic Migration Summary (All Tags)")
-    st.dataframe(migration_summary)
+    st.write("### 🦉 Migration Summary (All Tags)")
+    # We’ll just show the DBSCAN-based summary here too
+    st.dataframe(migration_phase_summary)
 
     st.write(f"###  Daily Detection Counts — Tag {selected_tag}")
 
