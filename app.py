@@ -4,6 +4,8 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # ======================
 # LOAD DATA
@@ -13,22 +15,24 @@ import matplotlib.pyplot as plt
 def load_data():
     detections = pd.read_csv("detections_with_phase.csv")
     migration_summary = pd.read_csv("migration_phase_summary.csv")
+    xai_summary = pd.read_csv("phase_summary_XAI.csv")
 
     # Ensure Tag is always STRING
     detections["Tag"] = detections["Tag"].astype(str)
     migration_summary["Tag"] = migration_summary["Tag"].astype(str)
+    xai_summary["Tag"] = xai_summary["Tag"].astype(str)
 
-    return detections, migration_summary
+    return detections, migration_summary, xai_summary
 
 
-detections, migration_summary = load_data()
+detections, migration_summary, xai_summary = load_data()
 
 # ======================
 # SIDEBAR – NAVIGATION
 # ======================
 
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to:", ["Home", "EDA", "Model"])
+page = st.sidebar.radio("Go to:", ["Home", "EDA", "Model", "Chatbot"])
 
 st.sidebar.title("Tag Selection")
 
@@ -57,7 +61,6 @@ if page == "Home":
     - **Population trends**
     - **Movement behaviour**
     - **Timing of migration events**
-    - **Stopover ecology**
 
     ---
     ## **What This App Provides**
@@ -85,24 +88,19 @@ elif page == "EDA":
 
     st.write(f"### 📅 Daily Detection Counts — Tag {selected_tag}")
 
-    # Ensure Tag values match
     detections["Tag"] = detections["Tag"].astype(str)
     selected_tag = str(selected_tag)
 
-    # Filter the selected tag
     df_tag = detections[detections["Tag"] == selected_tag].copy()
 
     if df_tag.empty:
         st.error("No detections available for this tag.")
     else:
-        # Convert timestamp
         df_tag["ts"] = pd.to_datetime(df_tag["ts"], errors="coerce")
         df_tag["date"] = df_tag["ts"].dt.date
 
-        # Daily detection counts
         daily = df_tag["date"].value_counts().sort_index()
 
-        # Plot
         fig, ax = plt.subplots(figsize=(8, 3))
         ax.plot(daily.index, daily.values, marker="o")
         ax.set_title(f"Daily Detections — {selected_tag}")
@@ -118,14 +116,13 @@ elif page == "EDA":
 
 elif page == "Model":
 
-    st.title("🟢 Migration Model (DBSCAN Phases)")
+    st.title(" Migration Model (DBSCAN Phases)")
 
     st.write("### 🦉 Migration Phase Summary (All Tags)")
     st.dataframe(migration_summary)
 
-    st.write(f"### 🟩 DBSCAN Phase Plot — Tag {selected_tag}")
+    st.write(f"###  DBSCAN Phase Plot — Tag {selected_tag}")
 
-    # Filter data
     df_tag = detections[detections["Tag"] == selected_tag].copy()
     df_tag["ts"] = pd.to_datetime(df_tag["ts"], errors="coerce")
 
@@ -134,7 +131,6 @@ elif page == "Model":
     else:
         fig, ax = plt.subplots(figsize=(10, 4))
 
-        # Colors for each phase
         colors = {
             "Arrival": "blue",
             "Stopover": "green",
@@ -143,7 +139,6 @@ elif page == "Model":
             "Movement/Noise": "gray"
         }
 
-        # Scatter plot of phases
         for phase, group in df_tag.groupby("phase"):
             ax.scatter(
                 group["ts"],
@@ -160,3 +155,60 @@ elif page == "Model":
         ax.legend()
 
         st.pyplot(fig)
+
+# ============================================================
+# CHATBOT PAGE (RAG)
+# ============================================================
+
+elif page == "Chatbot":
+
+    st.title("Saw-whet Owl Migration Chatbot")
+
+    st.write(
+        "Ask a question about migration timing, phases, clusters, or any owl tag. "
+        "The chatbot will answer using your processed migration data."
+    )
+
+    # ---- Build Knowledge Base ----
+    def build_kb(mig, xai):
+        rows = []
+
+        # Migration summary facts
+        for _, r in mig.iterrows():
+            text = (
+                f"Owl {r['Tag']} was detected from {r['Arrival']} to {r['Departure']} "
+                f"for {r['Total_Days']} days with {r['Num_Clusters']} clusters."
+            )
+            rows.append(text)
+
+        # XAI phase facts
+        for _, r in xai.iterrows():
+            text = (
+                f"Owl {r['Tag']} had {r['Count']} detections during the {r['Phase']} phase."
+            )
+            rows.append(text)
+
+        return rows
+
+    kb = build_kb(migration_summary, xai_summary)
+
+    # ---- Build TF-IDF Search Engine ----
+    vectorizer = TfidfVectorizer()
+    X = vectorizer.fit_transform(kb)
+
+    question = st.text_input("Ask your question:")
+
+    if question:
+        q_vec = vectorizer.transform([question])
+        sims = cosine_similarity(q_vec, X)[0]
+        best_idx = sims.argmax()
+        answer = kb[best_idx]
+
+        st.subheader("Answer:")
+        st.write(answer)
+
+        # Show top 3 supporting facts
+        top_idx = sims.argsort()[::-1][:3]
+        st.subheader("Relevant Data:")
+        for i in top_idx:
+            st.write("- " + kb[i])
