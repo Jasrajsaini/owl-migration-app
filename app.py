@@ -13,26 +13,26 @@ import matplotlib.pyplot as plt
 def load_data():
     detections = pd.read_csv("detections_with_phase.csv")
     migration_summary = pd.read_csv("migration_phase_summary.csv")
-    phase_summary = pd.read_csv("phase_summary_XAI.csv")
 
-    # 🔥 IMPORTANT FIX — Make Tag a STRING so filtering works
+    # 🔥 IMPORTANT FIX — ensure Tag is string
     detections["Tag"] = detections["Tag"].astype(str)
     migration_summary["Tag"] = migration_summary["Tag"].astype(str)
-    phase_summary["Tag"] = phase_summary["Tag"].astype(str)
 
-    return detections, migration_summary, phase_summary
+    return detections, migration_summary
 
 
-detections, migration_summary, phase_summary = load_data()
+detections, migration_summary = load_data()
 
 # ======================
 # SIDEBAR – NAVIGATION
 # ======================
 
-st.sidebar.title(" Navigation")
-page = st.sidebar.radio("Go to:", ["Home", "EDA", "Model", "XAI"])
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Go to:", ["Home", "EDA", "Model"])
 
-st.sidebar.title(" Tag Selection")
+st.sidebar.title("Tag Selection")
+
+# Make sure tags are sorted and unique
 all_tags = sorted(detections["Tag"].unique())
 selected_tag = st.sidebar.selectbox("Choose Tag ID:", all_tags)
 
@@ -41,66 +41,63 @@ selected_tag = st.sidebar.selectbox("Choose Tag ID:", all_tags)
 # ============================================================
 
 if page == "Home":
+
     st.title("🦉 Owl Migration Pattern Analysis App")
 
     st.markdown("""
-    ##  Problem Statement  
-    The goal of this project is to **analyze Northern Saw-whet Owl (NSWO) migration**  
-    using Motus detection data.  
-    We investigate:
-    -  **Migration timing** (arrival, stopover, departure)
-    -  **Detection behavior patterns across all tags**
+    ## 🟣 Project Overview  
+    This project analyzes **Northern Saw-whet Owl migration** using  
+    Motus wildlife tracking detections. Each owl tag produces  
+    hundreds of timestamps that show when the owl passed near  
+    the tracking station.
 
-    This analysis helps researchers better understand **population trends**,  
-    **migration behaviour**, and **movement timing** in Northern Saw-whet Owls.
+    We study:
+    - **Arrival patterns**
+    - **Stopover behavior**
+    - **Departure timing**
+    - **Migration duration**
+
+    ---
+    ## 🟣 What This App Shows
+    - **EDA Page:** Basic detection trends for each owl.
+    - **Model Page:** DBSCAN-based migration phase detection  
+      (Arrival / Stopover / Departure / Noise).
+
+    Use the left sidebar to choose a page and a tag.
     """)
 
-    st.markdown("""
-    ##  What This App Provides  
-    - **Exploratory Data Analysis (EDA)**  
-      General detection trends and daily detection patterns.  
-
-    - **DBSCAN-Based Migration Modeling**  
-      Identifies true arrival, stopover, departure phases.
-
-    - **XAI (Explainable AI)**  
-      Explains how features (signal strength, slope, run length)  
-      change across migration phases.
-
-    Use the sidebar on the left to navigate between pages.
-    """)
-
-    st.info(" Select a page from the sidebar to begin.")
+    st.info("Select a page from the sidebar to begin.")
 
 # ============================================================
 # EDA PAGE
 # ============================================================
 
 elif page == "EDA":
-    st.title(" Exploratory Data Analysis (EDA)")
 
-    st.write("### 🦉 Migration Summary (all tags)")
+    st.title("📊 Exploratory Data Analysis (EDA)")
+    st.write("### 🦉 Migration Summary (All Tags)")
     st.dataframe(migration_summary)
 
-    # -------------------------
-    # FIXED DAILY COUNTS PLOT
-    # -------------------------
+    st.write(f"### 📅 Daily Detection Counts – Tag {selected_tag}")
 
-    st.write(f"###  Daily Detection Counts – Tag {selected_tag}")
+    # Ensure Tag is string before filtering
+    detections["Tag"] = detections["Tag"].astype(str)
+    selected_tag = str(selected_tag)
 
+    # Filter dataset for selected tag
     df_tag = detections[detections["Tag"] == selected_tag].copy()
 
-    # Ensure timestamp is datetime
-    df_tag["ts"] = pd.to_datetime(df_tag["ts"], errors="coerce")
-
-    # Extract date only
-    df_tag["date"] = df_tag["ts"].dt.date
-
     if df_tag.empty:
-        st.warning("No detections found for this tag.")
+        st.error("No detections available for this tag.")
     else:
+        # Convert timestamps
+        df_tag["ts"] = pd.to_datetime(df_tag["ts"], errors="coerce")
+        df_tag["date"] = df_tag["ts"].dt.date
+
+        # Daily counts
         daily = df_tag["date"].value_counts().sort_index()
 
+        # Plot
         fig, ax = plt.subplots(figsize=(8, 3))
         ax.plot(daily.index, daily.values, marker="o")
         ax.set_title(f"Daily Detections — {selected_tag}")
@@ -114,18 +111,19 @@ elif page == "EDA":
 # ============================================================
 
 elif page == "Model":
-    st.title(" Migration Model (DBSCAN Results)")
 
-    st.write("### 🦉 Migration Phase Summary (all tags)")
+    st.title("🟢 Migration Model (DBSCAN Phases)")
+
+    st.write("### 🦉 Migration Phase Summary (All Tags)")
     st.dataframe(migration_summary)
 
-    st.write(f"###  Migration Phase Scatter Plot — Tag {selected_tag}")
+    st.write(f"### 🟩 DBSCAN Phase Plot — Tag {selected_tag}")
 
     df_tag = detections[detections["Tag"] == selected_tag].copy()
     df_tag["ts"] = pd.to_datetime(df_tag["ts"], errors="coerce")
 
     if df_tag.empty:
-        st.warning("No data available for this tag.")
+        st.error("No data available for this tag.")
     else:
         fig, ax = plt.subplots(figsize=(10, 4))
 
@@ -142,49 +140,9 @@ elif page == "Model":
                        color=colors.get(phase, "black"),
                        label=phase, s=10)
 
-        ax.set_title(f"DBSCAN Phase Plot — {selected_tag}")
+        ax.set_title(f"Migration Phases — {selected_tag}")
         ax.set_xlabel("Timestamp")
-        ax.set_ylabel("Hours from first detection")
+        ax.set_ylabel("Hours From First Detection")
         plt.xticks(rotation=45)
         ax.legend()
-        st.pyplot(fig)
-
-# ============================================================
-# XAI PAGE
-# ============================================================
-
-elif page == "XAI":
-    st.title(" Explainable AI — Phase Feature Analysis")
-
-    st.write("###  Feature Summary by Phase (all tags)")
-    st.dataframe(phase_summary)
-
-    st.write(f"###  XAI Boxplots — Tag {selected_tag}")
-
-    df_tag = detections[detections["Tag"] == selected_tag].copy()
-    df_tag["ts"] = pd.to_datetime(df_tag["ts"], errors="coerce")
-
-    if df_tag.empty:
-        st.warning("No data available for this tag.")
-    else:
-        features = ["hours_from_start"]
-        for col in ["sig", "slop", "runLen"]:
-            if col in df_tag.columns and df_tag[col].notna().any():
-                features.append(col)
-
-        phases = df_tag["phase"].unique()
-
-        n_features = len(features)
-        fig, axes = plt.subplots(1, n_features, figsize=(4 * n_features, 4))
-
-        if n_features == 1:
-            axes = [axes]
-
-        for ax, feat in zip(axes, features):
-            data = [df_tag[df_tag["phase"] == ph][feat].dropna() for ph in phases]
-            ax.boxplot(data, tick_labels=phases, showfliers=False)
-            ax.set_title(feat)
-            ax.set_ylabel(feat)
-            ax.set_xticklabels(phases, rotation=30)
-
         st.pyplot(fig)
