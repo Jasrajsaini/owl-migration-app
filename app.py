@@ -1,6 +1,3 @@
-app.py 
-
-
 # -*- coding: utf-8 -*-
 # Owl Migration Pattern Dashboard (Streamlit App)
 
