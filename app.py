@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Owl Migration Pattern Dashboard (Streamlit App)
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,21 +10,24 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-st.set_option('deprecation.showPyplotGlobalUse', False)
+st.set_option("client.showErrorDetails", True)
 
 # ================================================================
-# FILE UPLOAD
+# FILE UPLOADER (TEACHER REQUIREMENT)
 # ================================================================
 
 st.sidebar.title("Upload Dataset")
-uploaded_file = st.sidebar.file_uploader("Upload Owl Dataset (.xlsx)", type=["xlsx"])
+uploaded_file = st.sidebar.file_uploader(
+    "Upload Owl Dataset (.xlsx file)", type=["xlsx"]
+)
 
+# Stop the app until file is uploaded
 if uploaded_file is None:
-    st.warning("Please upload the original Excel dataset to begin.")
+    st.warning("Please upload the owl dataset to begin.")
     st.stop()
 
 # ================================================================
-# LOAD RAW EXCEL INTO PYTHON
+# LOAD RAW EXCEL
 # ================================================================
 
 @st.cache_data
@@ -34,7 +38,7 @@ def load_raw_data(file):
 raw_sheets = load_raw_data(uploaded_file)
 
 # ================================================================
-# DATA CLEANING FUNCTIONS (YOUR EXACT CODE)
+# CLEANING FUNCTIONS (YOUR EXISTING CODE)
 # ================================================================
 
 def clean_sheet(df):
@@ -52,15 +56,15 @@ def clean_sheet(df):
     return df
 
 # Remove unwanted sheets
-drop_sheets = ["80798", "80796", "80795", "80207", "80204"]
-for ds in drop_sheets:
-    raw_sheets.pop(ds, None)
+to_drop = ["80798", "80796", "80795", "80207", "80204"]
+for s in to_drop:
+    raw_sheets.pop(s, None)
 
 # Clean all sheets
 cleaned_sheets = {name: clean_sheet(df) for name, df in raw_sheets.items()}
 
 # ================================================================
-# FEATURE ENGINEERING FOR DBSCAN
+# FEATURE ENGINEERING + DBSCAN (YOUR EXACT LOGIC)
 # ================================================================
 
 def build_time_features(df):
@@ -68,6 +72,7 @@ def build_time_features(df):
 
     if "ts" not in df.columns:
         return None
+
     df = df.dropna(subset=["ts"])
     if df.empty:
         return None
@@ -79,79 +84,53 @@ def build_time_features(df):
     feature_cols = ["hours_from_start"]
     for col in ["sig", "slop", "runLen"]:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+            df[col] = pd.to_numeric(df[col], errors="coerce")
             feature_cols.append(col)
 
     X = df[feature_cols].fillna(0).values
     return df, X, feature_cols
 
 def run_dbscan_for_all_tags(cleaned_sheets):
-    tagged_results = {}
-    migration_events = []
+    tagged = []
+    results = {}
 
     for tag, df in cleaned_sheets.items():
-        result = build_time_features(df)
-        if result is None:
+        built = build_time_features(df)
+        if built is None:
             continue
 
-        df_feat, X, feat_cols = result
+        df_feat, X, feat_cols = built
+
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
 
         db = DBSCAN(eps=0.7, min_samples=5)
         labels = db.fit_predict(X_scaled)
+
         df_feat["cluster"] = labels
-        tagged_results[tag] = df_feat
+        results[tag] = df_feat
 
-        valid = df_feat[df_feat["cluster"] != -1]
-        if valid.empty:
-            migration_events.append({
-                "Tag": tag,
-                "Num_Clusters": 0,
-                "Arrival": None,
-                "Departure": None,
-                "Total_Days": None
-            })
-            continue
+    return results
 
-        cluster_info = []
-        for c in sorted(valid["cluster"].unique()):
-            sub = valid[valid["cluster"] == c]
-            cluster_info.append((c, sub["ts"].min(), sub["ts"].max()))
-
-        arrival = min(ci[1] for ci in cluster_info)
-        departure = max(ci[2] for ci in cluster_info)
-        total_days = (departure.date() - arrival.date()).days + 1
-
-        migration_events.append({
-            "Tag": tag,
-            "Num_Clusters": len(cluster_info),
-            "Arrival": arrival,
-            "Departure": departure,
-            "Total_Days": total_days
-        })
-
-    migration_summary = pd.DataFrame(migration_events).sort_values("Tag").reset_index(drop=True)
-    return tagged_results, migration_summary
-
-clustered_tags, migration_phase_summary = run_dbscan_for_all_tags(cleaned_sheets)
+clustered_tags = run_dbscan_for_all_tags(cleaned_sheets)
 
 # ================================================================
-# INTERPRET DBSCAN CLUSTERS AS BIOLOGICAL PHASES
+# INTERPRETATION OF CLUSTERS (Arrival, Stopover, Departure)
 # ================================================================
 
 def interpret_migration_phases(clustered_tags):
-    rows = []
-    full = {}
+    final_rows = []
+    full_df = {}
 
     for tag, df in clustered_tags.items():
         df = df.copy()
         valid = df[df["cluster"] != -1]
 
+        # No real clusters → noise only
         if valid.empty:
             df["phase"] = "Movement/Noise"
-            full[tag] = df
-            rows.append({
+            full_df[tag] = df
+            final_rows.append({
                 "Tag": tag,
                 "Num_Clusters": 0,
                 "Arrival": None,
@@ -161,75 +140,69 @@ def interpret_migration_phases(clustered_tags):
             })
             continue
 
+        # Build sorted cluster info
         cluster_info = []
         for c in sorted(valid["cluster"].unique()):
             sub = valid[valid["cluster"] == c]
             cluster_info.append((c, sub["ts"].min(), sub["ts"].max()))
-
         cluster_info = sorted(cluster_info, key=lambda x: x[1])
+
+        # Assign phases
         cluster_phase_map = {}
-
-        for i, (c, start, end) in enumerate(cluster_info):
-            if len(cluster_info) == 1:
-                cluster_phase_map[c] = "Single-Visit"
-            elif i == 0:
-                cluster_phase_map[c] = "Arrival"
-            elif i == len(cluster_info) - 1:
-                cluster_phase_map[c] = "Departure"
+        n = len(cluster_info)
+        for idx, (c, start, end) in enumerate(cluster_info):
+            if n == 1:
+                phase = "Single-Visit"
+            elif idx == 0:
+                phase = "Arrival"
+            elif idx == n - 1:
+                phase = "Departure"
             else:
-                cluster_phase_map[c] = "Stopover"
+                phase = "Stopover"
+            cluster_phase_map[c] = phase
 
+        # Assign back to df
         df["phase"] = df["cluster"].map(cluster_phase_map).fillna("Movement/Noise")
-
-        full[tag] = df
+        full_df[tag] = df
 
         arrival = min(ci[1] for ci in cluster_info)
-        departure = max(ci[2] for ci in cluster_info)
+        departure = max(ci[1] for ci in cluster_info)
         total_days = (departure.date() - arrival.date()).days + 1
-        stopovers = len(cluster_info) - 2 if len(cluster_info) > 2 else 0
+        stopovers = max(0, n - 2)
 
-        rows.append({
+        final_rows.append({
             "Tag": tag,
-            "Num_Clusters": len(cluster_info),
+            "Num_Clusters": n,
             "Arrival": arrival,
             "Departure": departure,
             "Stopover_Clusters": stopovers,
             "Total_Days": total_days
         })
 
-    phase_summary = pd.DataFrame(rows).sort_values("Tag").reset_index(drop=True)
-    return full, phase_summary
+    summary = pd.DataFrame(final_rows).sort_values("Tag").reset_index(drop=True)
+    return full_df, summary
 
 full_detection_details, migration_phase_summary = interpret_migration_phases(clustered_tags)
 
-# Build combined detection table
+# Build unified detections table
 all_rows = []
 for tag, df in full_detection_details.items():
-    tmp = df.copy()
-    tmp["Tag"] = tag
-    all_rows.append(tmp)
+    temp = df.copy()
+    temp["Tag"] = tag
+    all_rows.append(temp)
 
 detections = pd.concat(all_rows, ignore_index=True)
 
 # ================================================================
-# BUILD XAI SUMMARY
+# XAI SUMMARY
 # ================================================================
 
-def build_phase_summary(full_detection_details):
-    rows = []
-    for tag, df in full_detection_details.items():
-        feats = ["hours_from_start"]
-        for col in ["sig", "slop", "runLen"]:
-            if col in df.columns:
-                feats.append(col)
-
-        for phase, grp in df.groupby("phase"):
-            rows.append({
-                "Tag": tag,
-                "Phase": phase,
-                "Count": len(grp)
-            })
-    return pd.DataFrame(rows)
+def build_phase_summary(full):
+    out = []
+    for tag, df in full.items():
+        for phase, group in df.groupby("phase"):
+            out.append({"Tag": tag, "Phase": phase, "Count": len(group)})
+    return pd.DataFrame(out)
 
 xai_summary = build_phase_summary(full_detection_details)
 
@@ -249,11 +222,11 @@ selected_tag = st.sidebar.selectbox("Choose Tag ID:", all_tags)
 
 if page == "Home":
     st.title("🦉 Owl Migration Pattern Analysis App")
-    st.write("""
-    Upload your owl dataset and explore:
-    - Migration patterns
-    - DBSCAN clustering phases
-    - Stopovers and timing
+    st.markdown("""
+    This application analyzes **Northern Saw-whet Owl migration**  
+    using **DBSCAN clustering** on wildlife telemetry detections.
+
+    Upload your dataset in the sidebar to begin!
     """)
 
 # ================================================================
@@ -261,38 +234,36 @@ if page == "Home":
 # ================================================================
 
 elif page == "EDA":
-
-    st.title(" Exploratory Data Analysis (EDA)")
-
+    st.title("Exploratory Data Analysis (EDA)")
     st.write("### Migration Summary (All Tags)")
     st.dataframe(migration_phase_summary)
 
     df_tag = detections[detections["Tag"] == selected_tag].copy()
-    df_tag["ts"] = pd.to_datetime(df_tag["ts"], errors="coerce")
+    df_tag["ts"] = pd.to_datetime(df_tag["ts"])
     df_tag["date"] = df_tag["ts"].dt.date
-
     daily = df_tag["date"].value_counts().sort_index()
 
     fig, ax = plt.subplots(figsize=(8, 3))
     ax.plot(daily.index, daily.values, marker="o")
-    ax.set_title(f"Daily Detections — {selected_tag}")
+    ax.set_title(f"Daily Detections — Tag {selected_tag}")
     plt.xticks(rotation=45)
     st.pyplot(fig)
 
 # ================================================================
-# MODEL PAGE
+# MODEL PAGE (DBSCAN)
 # ================================================================
 
 elif page == "Model":
+    st.title("Migration Model (DBSCAN Phases)")
 
-    st.title(" Migration Model (DBSCAN Phases)")
+    st.write("### DBSCAN-Based Migration Summary")
     st.dataframe(migration_phase_summary)
 
     df_tag = detections[detections["Tag"] == selected_tag].copy()
     df_tag["ts"] = pd.to_datetime(df_tag["ts"])
 
     fig, ax = plt.subplots(figsize=(10, 4))
-    colors = {
+    phase_colors = {
         "Arrival": "blue",
         "Stopover": "green",
         "Departure": "red",
@@ -302,7 +273,7 @@ elif page == "Model":
 
     for phase, group in df_tag.groupby("phase"):
         ax.scatter(group["ts"], group["hours_from_start"],
-                   color=colors.get(phase, "black"),
+                   color=phase_colors.get(phase, "black"),
                    s=10, label=phase)
 
     ax.set_title(f"Migration Phases — {selected_tag}")
@@ -318,6 +289,7 @@ elif page == "Chatbot":
 
     st.title("🦉 Owl Migration Chatbot")
 
+    # Build knowledge base
     def build_kb(mig, xai):
         rows = []
         for _, r in mig.iterrows():
@@ -340,7 +312,7 @@ elif page == "Chatbot":
     if question:
         q_vec = vectorizer.transform([question])
         sims = cosine_similarity(q_vec, X)[0]
-        best_idx = sims.argmax()
+        best = sims.argmax()
 
         st.subheader("Answer:")
-        st.write(kb[best_idx])
+        st.write(kb[best])
